@@ -107,6 +107,13 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      # Opens the built app and fails if it dies within seconds. The Mac menu bar exists only on
+      # macOS, so a crash while building it shows up nowhere else. A failure stops this job
+      # before Package and Upload, so the release stays a draft.
+      - name: Launch smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: python3 tests/smoke/launch.py "build/src/CKSong_artefacts/Release/CK Song.app/Contents/MacOS/CK Song"
+
       # Runs the real app headless against a null audio device, so the live engine is
       # running during export exactly as it is on a user's machine.
       - name: Smoke test (export follows automation)
