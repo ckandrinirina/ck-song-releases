@@ -33,6 +33,7 @@ jobs:
           repository: ckandrinirina/ck-song
           ref: ${{ inputs.tag }}
           token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
 
       # Stops here, before anything is built, if the tag and VERSION disagree.
       - name: Check the tag matches VERSION
@@ -81,6 +82,7 @@ jobs:
           repository: ckandrinirina/ck-song
           ref: ${{ inputs.tag }}
           token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
           submodules: recursive
 
       - name: Install Linux dependencies
@@ -167,6 +169,7 @@ jobs:
           repository: ckandrinirina/ck-song
           ref: ${{ inputs.tag }}
           token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
 
       - name: Write latest.json
         run: |
