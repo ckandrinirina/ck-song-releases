@@ -1,0 +1,185 @@
+# CK Song release pipeline. Lives in the private ck-song repo and is copied to the public
+# ck-song-releases repo (installer/release/sync_public.py), where Actions minutes are free.
+# It checks the private source out at the tag with SOURCE_TOKEN and publishes into this repo.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of ckandrinirina/ck-song to release, for example v0.3.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  # Releases and the download site live in the repo this workflow runs in.
+  RELEASES_REPO: ${{ github.repository }}
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  core-tests:
+    name: Core tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ckandrinirina/ck-song
+          ref: ${{ inputs.tag }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+
+      # Stops here, before anything is built, if the tag and VERSION disagree.
+      - name: Check the tag matches VERSION
+        run: python3 installer/release/manifest.py --check-tag "$TAG"
+
+      # One draft release, opened before the platforms build, so their uploads never race to create it.
+      - name: Open the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$RELEASES_REPO" --draft \
+              --title "CK Song ${TAG#v}" \
+              --notes "Download CK Song for Windows, macOS or Linux. Installed copies update themselves."
+
+      - name: Check UI text encoding
+        run: python3 tests/check_ui_text.py src
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCKSONG_BUILD_APP=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  app:
+    name: App (${{ matrix.name }})
+    needs: core-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            configure: -G Ninja -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          - name: Windows
+            os: windows-2022
+            configure: -G "Visual Studio 17 2022" -A x64
+          - name: Linux
+            os: ubuntu-24.04
+            configure: -G Ninja
+    runs-on: ${{ matrix.os }}
+    steps:
+      # The checkout action rewrites Tracktion Engine's SSH submodule URLs to HTTPS.
+      - uses: actions/checkout@v4
+        with:
+          repository: ckandrinirina/ck-song
+          ref: ${{ inputs.tag }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libjack-jackd2-dev ladspa-sdk libcurl4-openssl-dev \
+            libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev xvfb
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build ${{ matrix.configure }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      # Runs the real app headless against a null audio device, so the live engine is
+      # running during export exactly as it is on a user's machine.
+      - name: Smoke test (export follows automation)
+        if: runner.os == 'Linux'
+        run: |
+          printf 'pcm.!default { type null }\nctl.!default { type hw card 0 }\n' > ~/.asoundrc
+          xvfb-run -a python3 tests/smoke/automation_export.py "build/src/CKSong_artefacts/Release/CK Song"
+          xvfb-run -a python3 tests/smoke/sidechain_export.py "build/src/CKSong_artefacts/Release/CK Song"
+          xvfb-run -a python3 tests/smoke/album_export.py "build/src/CKSong_artefacts/Release/CK Song"
+
+      # A portable AppImage (bundled libraries, desktop entry and icon).
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: installer/linux/package.sh "build/src/CKSong_artefacts/Release/CK Song" "$(cat VERSION)"
+
+      # Signed and notarized when the Apple secrets are set (see installer/macos/package.sh),
+      # otherwise ad-hoc signed.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: installer/macos/package.sh "build/src/CKSong_artefacts/Release/CK Song.app" "$(cat VERSION)"
+
+      # An installer (Start menu, .cksong/.ckalbum file types, uninstaller) and a portable zip.
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "build/src/CKSong_artefacts/Release/CK Song.exe" -DestinationPath "dist/CK-Song-Windows.zip"
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          $version = (Get-Content VERSION -Raw).Trim()
+          $source = (Resolve-Path "build/src/CKSong_artefacts/Release").Path
+          & $iscc "/DAppVersion=$version" "/DSourceDir=$source" "installer\windows\CKSong.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/* --repo "$RELEASES_REPO" --clobber
+
+  # Every platform uploaded: add the update manifest, publish, then refresh the download site.
+  release:
+    name: Publish release
+    needs: app
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ckandrinirina/ck-song
+          ref: ${{ inputs.tag }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+
+      - name: Write latest.json
+        run: |
+          gh release download "$TAG" --repo "$RELEASES_REPO" --dir dist
+          python3 installer/release/manifest.py --version "${TAG#v}" --dist dist \
+            --base-url "https://github.com/$RELEASES_REPO/releases/download/$TAG" --out latest.json
+          cat latest.json
+
+      - name: Publish
+        run: |
+          gh release upload "$TAG" latest.json --repo "$RELEASES_REPO" --clobber
+          gh release edit "$TAG" --repo "$RELEASES_REPO" --draft=false --latest
+
+      # The download site, with this release's latest.json beside it, on gh-pages.
+      - name: Deploy the download site
+        run: python3 installer/release/deploy_site.py --manifest latest.json --repo "$RELEASES_REPO"
