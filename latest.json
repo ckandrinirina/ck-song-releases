@@ -1,24 +1,24 @@
 {
-  "version": "0.6.0",
-  "released": "2026-10-16",
+  "version": "0.7.1",
+  "released": "2026-10-20",
   "assets": {
     "windows": {
       "name": "CK-Song-Windows-Setup.exe",
-      "url": "https://github.com/ckandrinirina/ck-song-releases/releases/download/v0.6.0/CK-Song-Windows-Setup.exe",
-      "sha256": "b5a90b1fa25a11b9e52a5cc7c1bb22385d3732ac53109e9070a5730a44617bdb",
-      "size": 9011674
+      "url": "https://github.com/ckandrinirina/ck-song-releases/releases/download/v0.7.1/CK-Song-Windows-Setup.exe",
+      "sha256": "779c060bf66506f8c501bbaf7600a2784c3ba90370d3d8b8794cd4efe502b9c7",
+      "size": 9132697
     },
     "macos": {
       "name": "CK-Song-macOS.dmg",
-      "url": "https://github.com/ckandrinirina/ck-song-releases/releases/download/v0.6.0/CK-Song-macOS.dmg",
-      "sha256": "015b21c5ed32b5c7b8f09f1a0fb8ba1a961832fa2e69a024fa1c04f153a90818",
-      "size": 16605796
+      "url": "https://github.com/ckandrinirina/ck-song-releases/releases/download/v0.7.1/CK-Song-macOS.dmg",
+      "sha256": "bfd246b38cac305835df12a45edc8eb98ab612c9d201500544c314bc54e2ba8d",
+      "size": 17020488
     },
     "linux": {
       "name": "CK-Song-Linux-x86_64.AppImage",
-      "url": "https://github.com/ckandrinirina/ck-song-releases/releases/download/v0.6.0/CK-Song-Linux-x86_64.AppImage",
-      "sha256": "d27e95546a2d7f46dad437931c4217191bc584a6bd212ca4f6e99fddd41606d5",
-      "size": 8018424
+      "url": "https://github.com/ckandrinirina/ck-song-releases/releases/download/v0.7.1/CK-Song-Linux-x86_64.AppImage",
+      "sha256": "071577dbacc10636685fb4597933ee26e9d6cd2aeffbee3bcb097137543d3469",
+      "size": 8210936
     }
   }
 }
